@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useInView } from 'react-intersection-observer';
-import { Mail, Phone, MapPin, Send } from 'lucide-react';
+import { Mail, Phone, MapPin, Send, CheckCircle, AlertCircle } from 'lucide-react';
 import axios from 'axios';
 import './Contact.css';
 
@@ -14,6 +14,7 @@ const Contact = () => {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
+    phone: '',
     message: ''
   });
 
@@ -34,8 +35,11 @@ const Contact = () => {
 
     try {
       const response = await axios.post('/api/contact', formData);
-      setSubmitStatus({ type: 'success', message: response.data.message });
-      setFormData({ name: '', email: '', message: '' });
+      setSubmitStatus({ 
+        type: 'success', 
+        message: response.data.message || 'Message sent successfully!' 
+      });
+      setFormData({ name: '', email: '', phone: '', message: '' });
     } catch (error) {
       setSubmitStatus({ 
         type: 'error', 
@@ -129,10 +133,14 @@ const Contact = () => {
           >
             <form onSubmit={handleSubmit} className="contact-form">
               <div className="form-group">
+                <label htmlFor="name" className="form-label">
+                  Full Name *
+                </label>
                 <input
                   type="text"
+                  id="name"
                   name="name"
-                  placeholder="Your Name"
+                  placeholder="Your full name"
                   value={formData.name}
                   onChange={handleInputChange}
                   required
@@ -141,10 +149,14 @@ const Contact = () => {
               </div>
 
               <div className="form-group">
+                <label htmlFor="email" className="form-label">
+                  Email Address *
+                </label>
                 <input
                   type="email"
+                  id="email"
                   name="email"
-                  placeholder="Your Email"
+                  placeholder="your@email.com"
                   value={formData.email}
                   onChange={handleInputChange}
                   required
@@ -153,9 +165,28 @@ const Contact = () => {
               </div>
 
               <div className="form-group">
+                <label htmlFor="phone" className="form-label">
+                  Phone Number
+                </label>
+                <input
+                  type="tel"
+                  id="phone"
+                  name="phone"
+                  placeholder="+91 XXXXX XXXXX"
+                  value={formData.phone}
+                  onChange={handleInputChange}
+                  className="form-input"
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="message" className="form-label">
+                  Message *
+                </label>
                 <textarea
+                  id="message"
                   name="message"
-                  placeholder="Your Message"
+                  placeholder="Tell us about your project..."
                   value={formData.message}
                   onChange={handleInputChange}
                   required
@@ -171,7 +202,14 @@ const Contact = () => {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.3 }}
                 >
-                  {submitStatus.message}
+                  <div className="status-content">
+                    {submitStatus.type === 'success' ? (
+                      <CheckCircle className="status-icon" />
+                    ) : (
+                      <AlertCircle className="status-icon" />
+                    )}
+                    <span>{submitStatus.message}</span>
+                  </div>
                 </motion.div>
               )}
 
@@ -182,10 +220,26 @@ const Contact = () => {
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
               >
-                {isSubmitting ? 'Sending...' : 'Send Message'}
-                <Send className="submit-icon" />
+                {isSubmitting ? (
+                  <div className="submit-loading">
+                    <div className="loading-spinner"></div>
+                    Sending...
+                  </div>
+                ) : (
+                  <>
+                    Send Message
+                    <Send className="submit-icon" />
+                  </>
+                )}
               </motion.button>
             </form>
+
+            <div className="form-footer">
+              <p className="form-note">
+                <span className="note-icon">🔒</span>
+                Your information is secure and will never be shared with third parties.
+              </p>
+            </div>
           </motion.div>
         </div>
       </div>

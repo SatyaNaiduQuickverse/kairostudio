@@ -137,6 +137,14 @@
   position: relative;
 }
 
+.form-label {
+  display: block;
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
 .form-input,
 .form-textarea {
   width: 100%;
@@ -173,18 +181,31 @@
   border-radius: 10px;
   text-align: center;
   font-weight: 500;
+  border: 1px solid;
+}
+
+.status-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.status-icon {
+  width: 20px;
+  height: 20px;
 }
 
 .submit-status.success {
   background: rgba(78, 205, 196, 0.2);
   color: #4ecdc4;
-  border: 1px solid rgba(78, 205, 196, 0.3);
+  border-color: rgba(78, 205, 196, 0.3);
 }
 
 .submit-status.error {
   background: rgba(255, 107, 107, 0.2);
   color: #ff6b6b;
-  border: 1px solid rgba(255, 107, 107, 0.3);
+  border-color: rgba(255, 107, 107, 0.3);
 }
 
 .submit-btn {
@@ -237,6 +258,45 @@
 
 .submit-btn:hover:not(:disabled) .submit-icon {
   transform: translateX(5px);
+}
+
+.submit-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.loading-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid transparent;
+  border-top: 2px solid currentColor;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.form-footer {
+  margin-top: 1.5rem;
+  text-align: center;
+}
+
+.form-note {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.note-icon {
+  font-size: 1rem;
 }
 
 @media (max-width: 768px) {

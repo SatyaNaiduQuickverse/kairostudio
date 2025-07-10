@@ -4,35 +4,44 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "3000:3000"
+      - "3003:3000"
     environment:
-      - REACT_APP_API_URL=http://localhost:5000
-    depends_on:
-      - backend
+      - DANGEROUSLY_DISABLE_HOST_CHECK=true
     volumes:
       - ./frontend:/app
       - /app/node_modules
+    depends_on:
+      - backend
 
   backend:
     build: ./backend
     ports:
-      - "5000:5000"
+      - "3005:5000"
     environment:
       - NODE_ENV=production
       - PORT=5000
+      - DB_HOST=postgres
+      - DB_USER=postgres
+      - DB_PASSWORD=kairos_secure_2024
+      - DB_NAME=kairostudio
+      - DB_PORT=5432
     volumes:
       - ./backend:/app
       - /app/node_modules
-
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf
-      - /etc/letsencrypt:/etc/letsencrypt
     depends_on:
-      - frontend
-      - backend
+      - postgres
+
+  postgres:
+    image: postgres:15
+    environment:
+      - POSTGRES_DB=kairostudio
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=kairos_secure_2024
+    volumes:
+      - kairos_db:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
     restart: unless-stopped
+
+volumes:
+  kairos_db:
