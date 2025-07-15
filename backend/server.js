@@ -3,64 +3,11 @@ const cors = require('cors');
 const helmet = require('helmet');
 const dotenv = require('dotenv');
 const rateLimit = require('express-rate-limit');
-const pkg = require('pg');
-const bcrypt = require('bcryptjs');
 
-const { Pool } = pkg;
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-
-// Database connection
-const pool = new Pool({
-  user: process.env.DB_USER || 'postgres',
-  host: process.env.DB_HOST || 'postgres',
-  database: process.env.DB_NAME || 'kairostudio',
-  password: process.env.DB_PASSWORD || 'password',
-  port: process.env.DB_PORT || 5432,
-});
-
-// Create tables on startup
-const initDB = async () => {
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS contacts (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(100) NOT NULL,
-        email VARCHAR(255) NOT NULL,
-        phone VARCHAR(20),
-        message TEXT NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        status VARCHAR(20) DEFAULT 'new',
-        notes TEXT
-      )
-    `);
-    
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS admin_users (
-        id SERIAL PRIMARY KEY,
-        username VARCHAR(50) UNIQUE NOT NULL,
-        password_hash VARCHAR(255) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    // Create default admin user (password: admin123)
-    const hashedPassword = await bcrypt.hash('admin123', 10);
-    await pool.query(`
-      INSERT INTO admin_users (username, password_hash) 
-      VALUES ('admin', $1) 
-      ON CONFLICT (username) DO NOTHING
-    `, [hashedPassword]);
-
-    console.log('✅ Database initialized');
-  } catch (error) {
-    console.error('❌ Database initialization error:', error);
-  }
-};
-
-initDB();
 
 // Security middleware
 app.use(helmet());
@@ -74,39 +21,9 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// Strict rate limiting for admin routes
-const adminLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 5,
-  skipSuccessfulRequests: true
-});
-
-// Simple session store
-const sessions = new Map();
-
-// Admin authentication middleware
-const adminAuth = async (req, res, next) => {
-  const sessionId = req.headers['x-session-id'];
-  
-  if (!sessionId || !sessions.has(sessionId)) {
-    return res.status(401).json({ error: 'Unauthorized - Please login' });
-  }
-
-  const session = sessions.get(sessionId);
-  if (Date.now() > session.expires) {
-    sessions.delete(sessionId);
-    return res.status(401).json({ error: 'Session expired' });
-  }
-
-  req.user = session.user;
-  next();
-};
-
-// Generate session ID
-const generateSessionId = () => {
-  return Math.random().toString(36).substring(2, 15) + 
-         Math.random().toString(36).substring(2, 15);
-};
+// Mock data for now (no database)
+let contacts = [];
+let contactIdCounter = 1;
 
 // Public routes
 app.get('/', (req, res) => {
@@ -159,25 +76,29 @@ app.post('/api/contact', async (req, res) => {
       return res.status(400).json({ error: 'Field length exceeded' });
     }
 
-    if (phone && phone.length > 20) {
-      return res.status(400).json({ error: 'Phone number too long' });
-    }
-
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       return res.status(400).json({ error: 'Invalid email format' });
     }
 
-    // Save to database
-    const result = await pool.query(
-      'INSERT INTO contacts (name, email, phone, message) VALUES ($1, $2, $3, $4) RETURNING id',
-      [name, email, phone || null, message]
-    );
+    // Save to memory (no database)
+    const contact = {
+      id: contactIdCounter++,
+      name,
+      email,
+      phone: phone || null,
+      message,
+      created_at: new Date().toISOString(),
+      status: 'new',
+      notes: null
+    };
+    
+    contacts.push(contact);
 
     res.status(201).json({ 
       success: true,
       message: 'Thank you for your message! We\'ll get back to you soon.',
-      id: result.rows[0].id
+      id: contact.id
     });
   } catch (error) {
     console.error('Contact form error:', error);
@@ -185,101 +106,40 @@ app.post('/api/contact', async (req, res) => {
   }
 });
 
-// Admin login
-app.post('/api/admin/login', adminLimiter, async (req, res) => {
-  try {
-    const { username, password } = req.body;
-
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Username and password required' });
-    }
-
-    const result = await pool.query(
-      'SELECT id, username, password_hash FROM admin_users WHERE username = $1',
-      [username]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    const user = result.rows[0];
-    const isValidPassword = await bcrypt.compare(password, user.password_hash);
-
-    if (!isValidPassword) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    const sessionId = generateSessionId();
-    const expires = Date.now() + (24 * 60 * 60 * 1000);
-
-    sessions.set(sessionId, {
-      user: { id: user.id, username: user.username },
-      expires
-    });
-
-    res.json({
-      success: true,
-      sessionId,
-      message: 'Login successful'
-    });
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// Admin logout
-app.post('/api/admin/logout', (req, res) => {
-  const sessionId = req.headers['x-session-id'];
-  if (sessionId) {
-    sessions.delete(sessionId);
-  }
-  res.json({ success: true, message: 'Logged out' });
-});
-
-// Get all contacts (admin only)
-app.get('/api/admin/contacts', adminAuth, async (req, res) => {
+// Admin routes (NO AUTH REQUIRED)
+app.get('/api/admin/contacts', async (req, res) => {
   try {
     const { status, limit = 20, offset = 0, search } = req.query;
     
-    let query = 'SELECT * FROM contacts';
-    let params = [];
-    let conditions = [];
+    let filteredContacts = [...contacts];
     
+    // Filter by status
     if (status && status !== 'all') {
-      conditions.push(`status = ${params.length + 1}`);
-      params.push(status);
+      filteredContacts = filteredContacts.filter(c => c.status === status);
     }
-
+    
+    // Search
     if (search) {
-      conditions.push(`(name ILIKE ${params.length + 1} OR email ILIKE ${params.length + 1} OR message ILIKE ${params.length + 1})`);
-      params.push(`%${search}%`);
-    }
-
-    if (conditions.length > 0) {
-      query += ' WHERE ' + conditions.join(' AND ');
-    }
-    
-    query += ` ORDER BY created_at DESC LIMIT ${params.length + 1} OFFSET ${params.length + 2}`;
-    params.push(limit, offset);
-
-    const result = await pool.query(query, params);
-    
-    // Get total count
-    let countQuery = 'SELECT COUNT(*) FROM contacts';
-    let countParams = [];
-    
-    if (conditions.length > 0) {
-      countQuery += ' WHERE ' + conditions.join(' AND ');
-      countParams = params.slice(0, -2); // Remove limit and offset
+      const searchLower = search.toLowerCase();
+      filteredContacts = filteredContacts.filter(c => 
+        c.name.toLowerCase().includes(searchLower) ||
+        c.email.toLowerCase().includes(searchLower) ||
+        c.message.toLowerCase().includes(searchLower)
+      );
     }
     
-    const countResult = await pool.query(countQuery, countParams);
+    // Sort by date (newest first)
+    filteredContacts.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    
+    // Pagination
+    const total = filteredContacts.length;
+    const startIndex = parseInt(offset);
+    const endIndex = startIndex + parseInt(limit);
+    const paginatedContacts = filteredContacts.slice(startIndex, endIndex);
 
     res.json({
-      contacts: result.rows,
-      total: parseInt(countResult.rows[0].count),
+      contacts: paginatedContacts,
+      total: total,
       limit: parseInt(limit),
       offset: parseInt(offset)
     });
@@ -289,8 +149,8 @@ app.get('/api/admin/contacts', adminAuth, async (req, res) => {
   }
 });
 
-// Update contact status and notes (admin only)
-app.patch('/api/admin/contacts/:id', adminAuth, async (req, res) => {
+// Update contact status and notes
+app.patch('/api/admin/contacts/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { status, notes } = req.body;
@@ -300,54 +160,33 @@ app.patch('/api/admin/contacts/:id', adminAuth, async (req, res) => {
       return res.status(400).json({ error: 'Invalid status' });
     }
 
-    let query = 'UPDATE contacts SET ';
-    let updates = [];
-    let params = [];
-
-    if (status) {
-      updates.push(`status = ${params.length + 1}`);
-      params.push(status);
-    }
-
-    if (notes !== undefined) {
-      updates.push(`notes = ${params.length + 1}`);
-      params.push(notes);
-    }
-
-    if (updates.length === 0) {
-      return res.status(400).json({ error: 'No fields to update' });
-    }
-
-    query += updates.join(', ') + ` WHERE id = ${params.length + 1} RETURNING *`;
-    params.push(id);
-
-    const result = await pool.query(query, params);
-
-    if (result.rows.length === 0) {
+    const contactIndex = contacts.findIndex(c => c.id === parseInt(id));
+    if (contactIndex === -1) {
       return res.status(404).json({ error: 'Contact not found' });
     }
 
-    res.json(result.rows[0]);
+    // Update contact
+    if (status) contacts[contactIndex].status = status;
+    if (notes !== undefined) contacts[contactIndex].notes = notes;
+
+    res.json(contacts[contactIndex]);
   } catch (error) {
     console.error('Update contact error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// Delete contact (admin only)
-app.delete('/api/admin/contacts/:id', adminAuth, async (req, res) => {
+// Delete contact
+app.delete('/api/admin/contacts/:id', async (req, res) => {
   try {
     const { id } = req.params;
-
-    const result = await pool.query(
-      'DELETE FROM contacts WHERE id = $1 RETURNING id',
-      [id]
-    );
-
-    if (result.rows.length === 0) {
+    const contactIndex = contacts.findIndex(c => c.id === parseInt(id));
+    
+    if (contactIndex === -1) {
       return res.status(404).json({ error: 'Contact not found' });
     }
 
+    contacts.splice(contactIndex, 1);
     res.json({ success: true, message: 'Contact deleted' });
   } catch (error) {
     console.error('Delete contact error:', error);
@@ -355,24 +194,23 @@ app.delete('/api/admin/contacts/:id', adminAuth, async (req, res) => {
   }
 });
 
-// Dashboard stats (admin only)
-app.get('/api/admin/stats', adminAuth, async (req, res) => {
+// Dashboard stats
+app.get('/api/admin/stats', async (req, res) => {
   try {
-    const stats = await Promise.all([
-      pool.query('SELECT COUNT(*) as total FROM contacts'),
-      pool.query('SELECT COUNT(*) as new FROM contacts WHERE status = $1', ['new']),
-      pool.query('SELECT COUNT(*) as today FROM contacts WHERE created_at::date = CURRENT_DATE'),
-      pool.query('SELECT COUNT(*) as week FROM contacts WHERE created_at > NOW() - INTERVAL \'7 days\''),
-      pool.query('SELECT COUNT(*) as month FROM contacts WHERE created_at > NOW() - INTERVAL \'30 days\'')
-    ]);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    res.json({
-      total: parseInt(stats[0].rows[0].total),
-      new: parseInt(stats[1].rows[0].new),
-      today: parseInt(stats[2].rows[0].today),
-      week: parseInt(stats[3].rows[0].week),
-      month: parseInt(stats[4].rows[0].month)
-    });
+    const stats = {
+      total: contacts.length,
+      new: contacts.filter(c => c.status === 'new').length,
+      today: contacts.filter(c => new Date(c.created_at) >= today).length,
+      week: contacts.filter(c => new Date(c.created_at) >= weekAgo).length,
+      month: contacts.filter(c => new Date(c.created_at) >= monthAgo).length
+    };
+
+    res.json(stats);
   } catch (error) {
     console.error('Stats error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -396,5 +234,5 @@ app.use('*', (req, res) => {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Kairos Studio API running on port ${PORT}`);
   console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🔐 Admin login: username: admin, password: admin123`);
+  console.log(`📊 Admin dashboard: http://localhost:${PORT}/admin (No auth required)`);
 });
